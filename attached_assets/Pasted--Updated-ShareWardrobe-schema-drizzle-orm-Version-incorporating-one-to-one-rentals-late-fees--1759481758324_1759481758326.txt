@@ -1,0 +1,324 @@
+// Updated ShareWardrobe schema (drizzle-orm) - Version incorporating one-to-one rentals, late fees, payment timeouts, and multi-quantity support
+// Generated: October 02, 2025
+
+import { pgTable, serial, text, decimal, integer, timestamp, boolean, pgEnum, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
+
+// Enums
+export const roleEnum = pgEnum('role', ['user', 'seller', 'user_seller', 'admin']);
+export const userStatusEnum = pgEnum('user_status', ['active', 'inactive', 'deleted', 'suspended']);
+export const itemAvailabilityEnum = pgEnum('item_availability', ['sell_only', 'rent_only', 'both']);
+export const itemStatusEnum = pgEnum('item_status', [
+  'pending_approval',
+  'available',
+  'in_warehouse',
+  'rented',
+  'sold',
+  'returned_pending',
+  'damaged',
+  'rejected'
+]);
+export const orderTypeEnum = pgEnum('order_type', ['buy', 'rent']);
+export const orderStatusEnum = pgEnum('order_status', [
+  'pending',
+  'paid',
+  'shipped',
+  'delivered',
+  'returned',
+  'partially_returned',
+  'cancelled',
+  'refunded'
+]);
+export const orderItemStatusEnum = pgEnum('order_item_status', [
+  'pending',
+  'shipped',
+  'delivered',
+  'returned',
+  'cancelled',
+  'refunded'
+]);
+export const paymentMethodEnum = pgEnum('payment_method', ['cod', 'online']);
+export const negotiationStatusEnum = pgEnum('negotiation_status', ['pending', 'accepted', 'rejected']);
+export const deliveryStatusEnum = pgEnum('delivery_status', ['pending', 'picked_up', 'in_transit', 'delivered', 'failed']);
+export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'approved', 'rejected']);
+export const transactionTypeEnum = pgEnum('transaction_type', ['payment', 'refund', 'withdrawal', 'fee']);
+export const transactionStatusEnum = pgEnum('transaction_status', ['pending', 'completed', 'failed', 'cancelled']);
+export const notificationTypeEnum = pgEnum('notification_type', ['order_confirmation', 'rental_reminder', 'negotiation', 'system']);
+export const rentalReturnStatusEnum = pgEnum('rental_return_status', ['pending', 'inspected', 'refunded', 'completed', 'rejected']);
+export const withdrawalStatusEnum = pgEnum('withdrawal_status', ['pending', 'processed', 'rejected']);
+
+// Admin Configs Table (for dynamic settings like fees, timeouts)
+export const adminConfigs = pgTable('admin_configs', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  description: text('description'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+});
+// Example keys: delivery_charge_per_order, safety_deposit_percentage, rental_period_days, platform_fee_sale_percent, 
+// platform_fee_rental_percent, negotiation_hold_minutes, payment_timeout_minutes (new for order timeouts, e.g., "60")
+
+// Categories Table
+export const categories = pgTable('categories', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug'),
+  description: text('description'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  nameIndex: uniqueIndex('categories_name_idx').on(table.name),
+}));
+
+// Users Table
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  role: roleEnum('role').notNull().default('user'),
+  status: userStatusEnum('status').notNull().default('active'),
+  address: text('address'),
+  phone: text('phone'),
+  balance: decimal('balance', { precision: 14, scale: 2 }).notNull().default('0.00'),
+  nidFrontUrl: text('nid_front_url'),
+  nidBackUrl: text('nid_back_url'),
+  verificationStatus: verificationStatusEnum('verification_status').default('pending'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  emailIndex: uniqueIndex('users_email_idx').on(table.email),
+}));
+
+// Items Table
+export const items = pgTable('items', {
+  id: serial('id').primaryKey(),
+  sellerId: integer('seller_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  categoryId: integer('category_id').notNull().references(() => categories.id, { onDelete: 'restrict' }),
+  type: text('type').notNull(),
+  color: text('color'),
+  size: text('size'),
+  wearingTime: text('wearing_time'),
+  purchasePrice: decimal('purchase_price', { precision: 14, scale: 2 }).notNull(),
+  description: text('description').notNull(),
+  sellPrice: decimal('sell_price', { precision: 14, scale: 2 }),
+  rentPrice: decimal('rent_price', { precision: 14, scale: 2 }),
+  availability: itemAvailabilityEnum('availability').notNull(),
+  quantity: integer('quantity').notNull().default(1),
+  images: jsonb('images').notNull().$type<string[]>(),
+  video: text('video'),
+  status: itemStatusEnum('status').notNull().default('pending_approval'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Cart Items Table
+export const cartItems = pgTable('cart_items', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  itemId: integer('item_id').notNull().references(() => items.id, { onDelete: 'cascade' }),
+  quantity: integer('quantity').notNull().default(1),
+  type: orderTypeEnum('type').notNull(),
+  negotiatedPrice: decimal('negotiated_price', { precision: 14, scale: 2 }),
+  negotiatedExpiresAt: timestamp('negotiated_expires_at'),
+  negotiationId: integer('negotiation_id').references(() => negotiations.id, { onDelete: 'set null' }),
+  addedAt: timestamp('added_at').notNull().defaultNow(),
+}, (table) => ({
+  uniqueIndex: uniqueIndex('cart_items_user_item_type_idx').on(table.userId, table.itemId, table.type),
+}));
+
+// Orders Table (added paymentDueAt and deliveryChargePaid for timeouts and COD tracking)
+export const orders = pgTable('orders', {
+  id: serial('id').primaryKey(),
+  buyerId: integer('buyer_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  totalAmount: decimal('total_amount', { precision: 14, scale: 2 }).notNull(),
+  deliveryCharge: decimal('delivery_charge', { precision: 14, scale: 2 }).notNull(),
+  safetyDeposit: decimal('safety_deposit', { precision: 14, scale: 2 }).default('0.00'),
+  paymentMethod: paymentMethodEnum('payment_method').notNull(),
+  status: orderStatusEnum('status').notNull().default('pending'),
+  paymentDueAt: timestamp('payment_due_at'), // For admin-configurable timeouts; app calculates as createdAt + timeout
+  deliveryChargePaid: boolean('delivery_charge_paid').notNull().default(false), // Tracks upfront COD delivery payment
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Order Items Table
+export const orderItems = pgTable('order_items', {
+  id: serial('id').primaryKey(),
+  orderId: integer('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  itemId: integer('item_id').notNull().references(() => items.id, { onDelete: 'restrict' }),
+  quantity: integer('quantity').notNull(),
+  price: decimal('price', { precision: 14, scale: 2 }).notNull(),
+  type: orderTypeEnum('type').notNull(),
+  status: orderItemStatusEnum('status').notNull().default('pending'),
+});
+// Business rule update: Allow multi-quantity for rentals/buys; no partial receipts, but post-delivery partial returns for buys; all-or-nothing for rentals.
+
+// Negotiations Table
+export const negotiations = pgTable('negotiations', {
+  id: serial('id').primaryKey(),
+  itemId: integer('item_id').notNull().references(() => items.id, { onDelete: 'cascade' }),
+  buyerId: integer('buyer_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  offerPrice: decimal('offer_price', { precision: 14, scale: 2 }).notNull(),
+  status: negotiationStatusEnum('status').notNull().default('pending'),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Deliveries Table
+export const deliveries = pgTable('deliveries', {
+  id: serial('id').primaryKey(),
+  orderId: integer('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  fromAddress: text('from_address').notNull(),
+  toAddress: text('to_address').notNull(),
+  status: deliveryStatusEnum('status').notNull().default('pending'),
+  trackingId: text('tracking_id'),
+  isReturn: boolean('is_return').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Rentals Table (added late_fee for overdues; one-to-one with unique orderItemId)
+export const rentals = pgTable('rentals', {
+  id: serial('id').primaryKey(),
+  orderItemId: integer('order_item_id').notNull().references(() => orderItems.id, { onDelete: 'cascade' }).unique(),
+  rentalStart: timestamp('rental_start').notNull(),
+  rentalEnd: timestamp('rental_end').notNull(),
+  returnStatus: rentalReturnStatusEnum('return_status').default('pending'),
+  inspectionResult: text('inspection_result'),
+  refundAmount: decimal('refund_amount', { precision: 14, scale: 2 }),
+  lateFee: decimal('late_fee', { precision: 14, scale: 2 }).notNull().default('0.00'), // For overdue calculations
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Transactions Table
+export const transactions = pgTable('transactions', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'restrict' }),
+  orderId: integer('order_id').references(() => orders.id, { onDelete: 'restrict' }),
+  amount: decimal('amount', { precision: 14, scale: 2 }).notNull(),
+  type: transactionTypeEnum('type').notNull(),
+  status: transactionStatusEnum('status').notNull().default('pending'),
+  description: text('description'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Withdrawal Requests Table
+export const withdrawalRequests = pgTable('withdrawal_requests', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  amount: decimal('amount', { precision: 14, scale: 2 }).notNull(),
+  status: withdrawalStatusEnum('status').notNull().default('pending'),
+  processedAt: timestamp('processed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Notifications Table
+export const notifications = pgTable('notifications', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: notificationTypeEnum('type').notNull(),
+  message: text('message').notNull(),
+  isRead: boolean('is_read').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Warehouse Inventory Table
+export const warehouseInventory = pgTable('warehouse_inventory', {
+  id: serial('id').primaryKey(),
+  itemId: integer('item_id').notNull().references(() => items.id, { onDelete: 'cascade' }),
+  quantity: integer('quantity').notNull().default(1),
+  status: itemStatusEnum('status').notNull().default('in_warehouse'),
+  lastUpdated: timestamp('last_updated').notNull().defaultNow().$onUpdate(() => new Date()),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// Relations
+export const usersRelations = relations(users, ({ many }) => ({
+  items: many(items),
+  cartItems: many(cartItems),
+  orders: many(orders),
+  negotiations: many(negotiations),
+  transactions: many(transactions),
+  withdrawalRequests: many(withdrawalRequests),
+  notifications: many(notifications),
+}));
+
+export const categoriesRelations = relations(categories, ({ many }) => ({
+  items: many(items),
+}));
+
+export const itemsRelations = relations(items, ({ one, many }) => ({
+  seller: one(users, { fields: [items.sellerId], references: [users.id] }),
+  category: one(categories, { fields: [items.categoryId], references: [categories.id] }),
+  cartItems: many(cartItems),
+  orderItems: many(orderItems),
+  negotiations: many(negotiations),
+  warehouseInventory: many(warehouseInventory),
+}));
+
+export const cartItemsRelations = relations(cartItems, ({ one }) => ({
+  user: one(users, { fields: [cartItems.userId], references: [users.id] }),
+  item: one(items, { fields: [cartItems.itemId], references: [items.id] }),
+  negotiation: one(negotiations, { fields: [cartItems.negotiationId], references: [negotiations.id] }),
+}));
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  buyer: one(users, { fields: [orders.buyerId], references: [users.id] }),
+  orderItems: many(orderItems),
+  deliveries: many(deliveries),
+  transactions: many(transactions),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, { fields: [orderItems.orderId], references: [orders.id] }),
+  item: one(items, { fields: [orderItems.itemId], references: [items.id] }),
+  rental: one(rentals, { fields: [orderItems.id], references: [rentals.orderItemId] }), // Updated to one-to-one
+}));
+
+export const negotiationsRelations = relations(negotiations, ({ one }) => ({
+  item: one(items, { fields: [negotiations.itemId], references: [items.id] }),
+  buyer: one(users, { fields: [negotiations.buyerId], references: [users.id] }),
+}));
+
+export const deliveriesRelations = relations(deliveries, ({ one }) => ({
+  order: one(orders, { fields: [deliveries.orderId], references: [orders.id] }),
+}));
+
+export const rentalsRelations = relations(rentals, ({ one }) => ({
+  orderItem: one(orderItems, { fields: [rentals.orderItemId], references: [orderItems.id] }),
+}));
+
+export const transactionsRelations = relations(transactions, ({ one }) => ({
+  user: one(users, { fields: [transactions.userId], references: [users.id] }),
+  order: one(orders, { fields: [transactions.orderId], references: [orders.id] }),
+}));
+
+export const withdrawalRequestsRelations = relations(withdrawalRequests, ({ one }) => ({
+  user: one(users, { fields: [withdrawalRequests.userId], references: [users.id] }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, { fields: [notifications.userId], references: [users.id] }),
+}));
+
+export const warehouseInventoryRelations = relations(warehouseInventory, ({ one }) => ({
+  item: one(items, { fields: [warehouseInventory.itemId], references: [items.id] }),
+}));
+
+// Recommended Indexes & DB CHECKS (apply via migrations)
+/// Indexes on FKs and filters: e.g., items(categoryId), orders(paymentDueAt), rentals(lateFee)
+/// CHECKs: quantity >= 1, prices >= 0, etc.
+/// Partial unique on users.email WHERE deletedAt IS NULL
+/// Business notes: Delivery charges non-refundable; timeouts close orders and free inventory via background jobs.

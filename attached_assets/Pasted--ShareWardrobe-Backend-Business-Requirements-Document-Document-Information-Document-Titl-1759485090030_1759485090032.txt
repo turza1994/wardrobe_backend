@@ -1,0 +1,201 @@
+# ShareWardrobe Backend Business Requirements Document
+
+## Document Information
+- **Document Title**: Business Requirements Document for ShareWardrobe Backend
+- **Version**: 1.0
+- **Date**: October 02, 2025
+- **Author**: Grok 4 (AI Assistant)
+- **Purpose**: This BRD outlines the business objectives, stakeholders, and high-level requirements for the backend of ShareWardrobe, a peer-to-peer fashion marketplace for women to buy, sell, and rent used dresses and accessories. It serves as a guide for stakeholders to understand the business needs and ensure alignment with the platform’s goals of promoting sustainable fashion, generating revenue, and providing a seamless user experience.
+
+## Business Overview
+ShareWardrobe is a peer-to-peer (P2P) fashion platform targeting women aged 18-45, enabling them to buy, sell, and rent used dresses and accessories. The backend system is critical to support core functionalities such as user management, category and item listings, transactions, negotiations, logistics, and administrative oversight. By facilitating sustainable fashion and efficient operations, ShareWardrobe aims to capture a significant share of the second-hand fashion market in Bangladesh (assumed based on TK currency and logistics integration).
+
+### Business Objectives
+- Promote sustainable fashion by encouraging reuse of clothing to reduce environmental impact.
+- Generate revenue through platform fees, configurable for sales and rentals.
+- Build user trust through secure transactions, user verification, and reliable logistics.
+- Automate processes like payments, deliveries, and notifications to minimize manual intervention.
+- Ensure scalability to handle growth in users and transactions without performance degradation.
+
+### Key Performance Indicators (KPIs)
+- Achieve 10,000 active users within the first year.
+- Process 1,000 transactions (buy/rent) per month within six months of launch.
+- Maintain 95% user satisfaction rate based on post-transaction surveys.
+- Ensure 99.9% backend uptime for uninterrupted service.
+- Generate monthly platform revenue of 500,000 TK within 12 months.
+
+### Assumptions
+- Target market is primarily Bangladesh, with potential for regional expansion.
+- Users have access to web browsers; no mobile app required initially.
+- The backend runs on serverless functions (e.g., Vercel) with Neon/PostgreSQL.
+- All timestamps are stored in UTC.
+- Third-party services (logistics providers, payment gateways like bKash/Stripe) are reliable and available.
+- Admins will manage configurable values (e.g., delivery charges, percentages, durations, payment timeouts) via a dedicated UI.
+- Legal compliance for handling user data (e.g., NID uploads) is achievable within local regulations.
+- Soft deletes are used for auditing; unique constraints like email consider soft deletes via partial unique indexes.
+
+## Stakeholders
+- **Customers (Buyers/Sellers)**: Women aged 18-45 seeking affordable, sustainable fashion or income from wardrobe items.
+- **Platform Owners**: ShareWardrobe business team responsible for revenue, growth, and operations.
+- **Administrators**: Internal team managing user verification, item approvals, configurations, and dispute resolution.
+- **Third-Party Partners**: Logistics providers, payment gateways (bKash, Stripe), and notification services (Twilio).
+- **Development Team**: Backend engineers building and maintaining the system.
+
+## Functional Requirements
+
+### User Management
+- **BR-1.1**: Allow users to register with minimal friction (name, email, password, address, phone).
+- **BR-1.2**: Support secure authentication to protect user accounts.
+- **BR-1.3**: Roles include user, seller, user_seller, and admin. The user_seller role denotes shoppers permitted to list items, while roles control access to seller actions.
+- **BR-1.4**: Track user statuses (active, inactive, deleted, suspended) for lifecycle management, with admins able to update them.
+- **BR-1.5**: Enable users to upload National ID (NID) images for rental verification, with secure storage and admin-restricted access.
+- **BR-1.6**: Maintain user balances for earnings from sales/rentals, with all changes traceable via transactions, and support withdrawals within 72 hours.
+- **BR-1.7**: Allow admins to verify, suspend, or manage user accounts while retaining historical data through soft deletes.
+
+### Category and Item Management
+- **BR-2.1**: Categories are stored in a dedicated table with fields for name, slug, and description to ensure consistency.
+- **BR-2.2**: Enable sellers to list items referencing a category ID, with details including type, color, size, wearing time, purchase price, description, sell price, rent price, availability (sell_only, rent_only, both), quantity, images (up to 5), and video.
+- **BR-2.3**: Item statuses include pending_approval (default), available, in_warehouse, rented, sold, returned_pending, damaged, and rejected. Items require admin approval before becoming available.
+- **BR-2.4**: Enforce consistency between availability and pricing (e.g., sell_only requires rent price to be null), using application logic and database check constraints.
+- **BR-2.5**: Support item filtering by category, type, color, size, price range, and wearing time, with required indexes on these columns for efficiency.
+- **BR-2.6**: Allow sellers to edit or remove listings, with data retention for analytics via soft deletes.
+- **BR-2.7**: Admins can approve or reject listings to maintain quality and compliance.
+
+### Cart and Order Processing
+- **BR-3.1**: Provide a persistent cart where users can add multiple items (buy or rent) with adjustable quantities, enforcing a unique constraint on user ID, item ID, and type to prevent duplicates.
+- **BR-3.2**: Cart items include negotiated prices with an expiration timestamp; expired negotiated items are automatically removed via background jobs.
+- **BR-3.3**: Process orders containing mixed buy and rent items, storing total amount, delivery charge, and safety deposit at the order level.
+- **BR-3.4**: Allow multiple quantities for both buy and rent orders; users must accept or reject all items in an order during receipt, with no partial receipts supported.
+- **BR-3.5**: For buys, allow partial returns post-delivery if items are damaged or not as described, handled at the item level.
+- **BR-3.6**: For rentals, enforce no partial returns through validation.
+- **BR-3.7**: Track order statuses (pending, paid, shipped, delivered, returned, partially_returned, cancelled, refunded) and ensure accurate inventory updates (e.g., reduce quantity on completion).
+- **BR-3.8**: Support multiple payment methods (Cash on Delivery, online via bKash/Stripe).
+- **BR-3.9**: If payment is not completed within an admin-configurable time, automatically close the order and free up item quantities for other buyers.
+
+### Negotiation Workflow
+- **BR-4.1**: Allow buyers to submit price offers, recorded with optional expiration.
+- **BR-4.2**: Enable sellers to accept or reject offers; on acceptance, copy the negotiated price to the buyer's cart with an admin-configured expiration (e.g., negotiation_hold_minutes).
+- **BR-4.3**: Maintain negotiation history for auditing and dispute resolution, with optional links to cart items for traceability.
+
+### Delivery Workflow
+- **BR-5.1**: Automate delivery requests via third-party APIs, storing generic tracking IDs, addresses, status, and return flags.
+- **BR-5.2**: Require payment of delivery charges during order placement; delivery charges are non-refundable.
+- **BR-5.3**: For COD, users pay at least the delivery charge before delivery arrives, and the remaining amount upon arrival; for online payments, full amount is paid upfront.
+- **BR-5.4**: Support multiple stages for rentals (seller to warehouse, warehouse to buyer, buyer to warehouse for returns), with isReturn flag for return shipments.
+- **BR-5.5**: Track delivery statuses (pending, picked_up, in_transit, delivered, failed) for transparency.
+
+### Rental Lifecycle
+- **BR-6.1**: Rentals follow an admin-configurable period (e.g., 7 days), starting from delivery, with scheduled reminders at 48 and 24 hours before end.
+- **BR-6.2**: Allow buyers to initiate returns, triggering a return delivery and updating return status (pending, inspected, refunded, completed, rejected).
+- **BR-6.3**: Enable admins to inspect returns, record results, and process refunds based on condition, posted as transactions.
+- **BR-6.4**: Update returned items in warehouse inventory and adjust statuses accordingly.
+- **BR-6.5**: Enforce no partial returns for rentals through validation.
+- **BR-6.6**: Include late fees for overdue returns, calculated and stored in the rentals table for edge cases.
+
+### Payment and Fee Management
+- **BR-7.1**: Deduct configurable platform fees (e.g., sale percent, rental percent) and credit net amounts to seller balances.
+- **BR-7.2**: Process payments securely, recording all movements (payments, refunds, withdrawals, fees) with dedicated statuses for reconciliation.
+- **BR-7.3**: Use admin-configurable settings for fees, deposits (e.g., safety_deposit_percentage), charges, and payment timeouts.
+- **BR-7.4**: Allow sellers to request withdrawals, processed by admins within 72 hours, with status tracking.
+
+### Admin Management
+- **BR-8.1**: Provide admins with tools to verify NID uploads, approve items, and manage user statuses.
+- **BR-8.2**: Enable admin UI for configuring dynamic settings (e.g., fees, periods, charges, payment timeouts).
+- **BR-8.3**: Allow monitoring of warehouse inventory and rental returns.
+- **BR-8.4**: Generate reports on revenues/fees by period and type, transaction ledgers, and inventory turnover.
+- **BR-8.5**: Support admin actions (e.g., suspend users, manage disputes) with data retention via soft deletes.
+
+### Notifications
+- **BR-9.1**: Send notifications for order confirmations, rental reminders, negotiation updates, and system messages.
+- **BR-9.2**: Support multiple channels (in-app, email, SMS) with event-driven scheduling.
+- **BR-9.3**: Allow users to view and mark notifications as read.
+
+## Non-Functional Requirements
+### Security
+- Encrypt sensitive data (e.g., NID images, payment details) at rest, using signed URLs for access.
+- Implement role-based access control (RBAC) to restrict admin actions.
+- Use secure authentication (e.g., JWT) for API endpoints, with rate limiting and webhook signatures for protection.
+
+### Performance
+- Ensure API response times under 200ms for 95% of requests.
+- Support 1,000 concurrent users initially, with indexes on foreign keys and filter columns (e.g., item category, type).
+- Use pagination for listings and avoid full-table scans.
+
+### Scalability
+- Design for cloud scalability (e.g., Vercel serverless, Neon PostgreSQL) with stateless endpoints and connection pooling.
+- Employ background workers for tasks like cleanup, reminders, and reconciliation.
+
+### Reliability
+- Handle multi-step operations (e.g., checkout, refunds) in database transactions for atomicity.
+- Implement retries for third-party integrations and notify admins of failures.
+- Ensure idempotency for transactions and webhooks using keys.
+
+### Compliance and Data Retention
+- Adhere to local data privacy laws, retaining historical data via soft deletes.
+- Use partial unique indexes (e.g., for emails where deletedAt is null) to allow reuse.
+- Audit config changes for traceability.
+
+### Deployment
+- Use environment variables for sensitive configurations (e.g., database URL, API keys).
+
+## Data and Transactional Rules
+- **Negotiation Expiry**: Accepted negotiations copy to cart with admin-configured expiration; remove expired entries via jobs.
+- **Partial Returns**: Not allowed during receipt for any orders; allowed post-delivery for buys if damaged; not allowed for rentals.
+- **Deposits and Refunds**: Calculate safety deposits as configurable percentage of item value; process refunds post-inspection as transactions; delivery charges non-refundable.
+- **Platform Fees**: Apply per order item using configurable percentages; record as fee-type transactions.
+- **Inventory and Concurrency**: Use atomic operations with SELECT FOR UPDATE to prevent oversell.
+- **Monetary Precision**: Use decimal types with precision 14, scale 2 for all money fields; avoid floating points.
+- **Payment Timeout**: Close unpaid orders after admin-configurable time, freeing inventory.
+- **Rental Relations**: Maintain one-to-one relationship between order items and rentals for precise tracking.
+
+## Indexing and Performance Requirements
+- Index all foreign key columns and commonly filtered fields (e.g., items.categoryId, type, size, color, availability, status).
+- Index cartItems.userId and negotiatedExpiresAt for efficient reads and cleanups.
+- Add partial unique indexes (e.g., users.email where deletedAt is null).
+- Include indexes on deliveries.trackingId and transactions.userId.
+- Implement check constraints for non-negative values, quantity >=1, and availability/price consistency.
+
+## Risks and Mitigations
+- **Risk**: Third-party service outages (e.g., logistics, payments) disrupt operations.  
+  **Mitigation**: Implement fallback manual processes and notify admins of failures.
+- **Risk**: Fraudulent activities in negotiations or rentals.  
+  **Mitigation**: Enforce admin verification for rentals and maintain transaction logs.
+- **Risk**: Data loss due to improper deletion.  
+  **Mitigation**: Use soft deletes across all entities to preserve data.
+- **Risk**: Scalability issues during traffic spikes.  
+  **Mitigation**: Leverage auto-scaling and conduct load testing.
+- **Risk**: Mis-calculated refunds for mixed orders.  
+  **Mitigation**: Store per-item deposit/fee details and use transaction logs for allocations.
+- **Risk**: Negotiation or cart expiry race conditions.  
+  **Mitigation**: Enforce checks at checkout and use background cleanups.
+- **Risk**: Inventory oversell under high concurrency.  
+  **Mitigation**: Employ database transactions with row locks.
+- **Risk**: Unexpected behavior from config changes.  
+  **Mitigation**: Provide UI warnings and log changes for rollback.
+- **Risk**: Unpaid orders tying up inventory.  
+  **Mitigation**: Automate order closure after payment timeout.
+
+## Success Criteria
+- **Operational Success**: Backend supports all workflows (buy, sell, rent) with 99% reliability, including atomic inventory updates and idempotent processing.
+- **Financial Success**: Achieve 500,000 TK monthly revenue from fees within 12 months, with accurate transaction ledgers matching balances.
+- **User Satisfaction**: Maintain 95% positive feedback on transaction ease and reliability.
+- **Compliance**: Meet data privacy requirements with no reported breaches.
+- **Implementation Completeness**: Category filtering works; configs are editable and respected; negotiations expire correctly; rentals enforce no partial returns and include late fees; buys support post-delivery partial returns; performance meets bounds in load tests.
+
+## Next Steps
+- Validate BRD with platform owners and admins.
+- Begin backend development with user management and item listing modules.
+- Develop test cases for critical workflows (e.g., checkout, rental returns).
+- Set up deployment environment and database for initial rollout.
+
+## Appendix: Example Admin Configuration Keys and Defaults
+
+| Key                          | Default Value | Description |
+|------------------------------|---------------|-------------|
+| delivery_charge_per_order    | 100.00 TK    | Charge per order for delivery. |
+| safety_deposit_percentage    | 30           | Percentage of item value for rental deposits. |
+| rental_period_days           | 7            | Standard rental duration in days. |
+| platform_fee_sale_percent    | 8            | Fee percentage for sales. |
+| platform_fee_rental_percent  | 16           | Fee percentage for rentals. |
+| negotiation_hold_minutes     | 1440           | Hold time for negotiated prices in cart. |
+| payment_timeout_minutes      | 1440           | Time limit for completing payment before order closure.
