@@ -1,9 +1,21 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import * as schema from './schema';
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
+import * as schema from './schema'
+import dotenv from 'dotenv'
 
-const connectionString = process.env.DATABASE_URL!;
+dotenv.config()
 
-const client = postgres(connectionString, { prepare: false });
+const connectionString = process.env.DATABASE_URL!
 
-export const db = drizzle(client, { schema });
+console.log(
+  '🔗 Database connecting to:',
+  connectionString ? 'Neon DB' : 'No DATABASE_URL found'
+)
+
+const client = postgres(connectionString, {
+  prepare: false,
+  max: 1,
+  ssl: 'require',
+})
+
+export const db = drizzle(client, { schema })

@@ -1,12 +1,15 @@
-import { db } from '../db';
-import { adminConfigs, users } from '../db/schema';
-import { eq } from 'drizzle-orm';
-import { authService } from '../services/auth';
-import { env } from '../config/env';
+import dotenv from 'dotenv'
+import { db } from '../db'
+import { adminConfigs, users } from '../db/schema'
+import { eq } from 'drizzle-orm'
+import { authService } from '../services/auth'
+import { env } from '../config/env'
+
+dotenv.config()
 
 async function seed() {
   try {
-    console.log('🌱 Seeding database...');
+    console.log('🌱 Seeding database...')
 
     const defaultConfigs = [
       {
@@ -44,20 +47,20 @@ async function seed() {
         value: '1440',
         description: 'Payment timeout for orders (in minutes)',
       },
-    ];
+    ]
 
     for (const config of defaultConfigs) {
       const [existing] = await db
         .select()
         .from(adminConfigs)
         .where(eq(adminConfigs.key, config.key))
-        .limit(1);
+        .limit(1)
 
       if (!existing) {
-        await db.insert(adminConfigs).values(config);
-        console.log(`✓ Created config: ${config.key}`);
+        await db.insert(adminConfigs).values(config)
+        console.log(`✓ Created config: ${config.key}`)
       } else {
-        console.log(`- Config already exists: ${config.key}`);
+        console.log(`- Config already exists: ${config.key}`)
       }
     }
 
@@ -65,11 +68,11 @@ async function seed() {
       .select()
       .from(users)
       .where(eq(users.email, env.ADMIN_EMAIL))
-      .limit(1);
+      .limit(1)
 
     if (!existingAdmin) {
-      const passwordHash = await authService.hashPassword(env.ADMIN_PASSWORD);
-      
+      const passwordHash = await authService.hashPassword(env.ADMIN_PASSWORD)
+
       await db.insert(users).values({
         name: 'Admin',
         email: env.ADMIN_EMAIL,
@@ -77,19 +80,19 @@ async function seed() {
         role: 'admin',
         status: 'active',
         verificationStatus: 'approved',
-      });
+      })
 
-      console.log(`✓ Created admin user: ${env.ADMIN_EMAIL}`);
+      console.log(`✓ Created admin user: ${env.ADMIN_EMAIL}`)
     } else {
-      console.log(`- Admin user already exists: ${env.ADMIN_EMAIL}`);
+      console.log(`- Admin user already exists: ${env.ADMIN_EMAIL}`)
     }
 
-    console.log('✅ Seeding completed!');
-    process.exit(0);
+    console.log('✅ Seeding completed!')
+    process.exit(0)
   } catch (error) {
-    console.error('❌ Seeding failed:', error);
-    process.exit(1);
+    console.error('❌ Seeding failed:', error)
+    process.exit(1)
   }
 }
 
-seed();
+seed()
