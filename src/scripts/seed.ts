@@ -64,10 +64,11 @@ async function seed() {
       }
     }
 
+    // Check for existing admin by phone (new system)
     const [existingAdmin] = await db
       .select()
       .from(users)
-      .where(eq(users.email, env.ADMIN_EMAIL))
+      .where(eq(users.phone, '01711111111')) // Default admin phone
       .limit(1)
 
     if (!existingAdmin) {
@@ -75,16 +76,20 @@ async function seed() {
 
       await db.insert(users).values({
         name: 'Admin',
+        phone: '01711111111', // Default admin phone number
         email: env.ADMIN_EMAIL,
         passwordHash,
         role: 'admin',
         status: 'active',
-        verificationStatus: 'approved',
+        phoneVerified: true, // Admin is pre-verified
+        phoneVerifiedAt: new Date(),
       })
 
-      console.log(`✓ Created admin user: ${env.ADMIN_EMAIL}`)
+      console.log(
+        `✓ Created admin user: ${env.ADMIN_EMAIL} (Phone: 01711111111)`
+      )
     } else {
-      console.log(`- Admin user already exists: ${env.ADMIN_EMAIL}`)
+      console.log(`- Admin user already exists: ${existingAdmin.phone}`)
     }
 
     console.log('✅ Seeding completed!')
