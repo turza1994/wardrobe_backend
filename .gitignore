@@ -11,3 +11,5 @@ coverage/
 .idea/
 *.swp
 *.swo
+.kilocode/
+.replit
