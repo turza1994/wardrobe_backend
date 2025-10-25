@@ -11,6 +11,7 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '../utils/error'
+import { send } from 'process'
 
 export class AuthController {
   async register(req: AuthRequest, res: Response, next: NextFunction) {
@@ -54,6 +55,16 @@ export class AuthController {
         email: user.phone || '', // Use phone as email for token (temp solution)
         role: user.role,
       })
+
+      console.log('AuthController instance:', this)
+      console.log('sendOTP method:', this.sendOTP)
+      await this.sendOTP(phone, 'registration')
+
+      // res.json({
+      //   success: true,
+      //   message: 'OTP sent successfully',
+      //   expiresIn: 300,
+      // })
 
       res.status(201).json({
         success: true,
@@ -194,5 +205,36 @@ export class AuthController {
     } catch (error) {
       next(error)
     }
+  }
+
+  sendOTP = async (phone: string, purpose: string) => {
+    console.log('sendOTP method called with:', phone, purpose)
+    // For demo: static OTP
+    const otp = '123456'
+
+    // Store or update OTP (expires in 5 minutes)
+    await db
+      .insert(otpVerifications)
+      .values({
+        phone,
+        otp,
+        purpose,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      })
+      .onConflictDoUpdate({
+        target: [otpVerifications.phone, otpVerifications.purpose],
+        set: {
+          otp,
+          status: 'pending',
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+          attempts: 0,
+        },
+      })
+
+    // Demo SMS service
+    await notificationService.sendSMS({
+      to: phone,
+      message: `Your ShareWardrobe OTP is: ${otp}`,
+    })
   }
 }

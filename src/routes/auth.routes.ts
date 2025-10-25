@@ -11,14 +11,26 @@ import {
 const router = Router()
 const authController = new AuthController()
 
-router.post('/register', validate(registerSchema), authController.register)
-router.post('/login', validate(loginSchema), authController.login)
-router.get('/profile', authenticate, authController.getProfile)
+router.post(
+  '/register',
+  validate(registerSchema),
+  authController.register.bind(authController)
+)
+router.post(
+  '/login',
+  validate(loginSchema),
+  authController.login.bind(authController)
+)
+router.get(
+  '/profile',
+  authenticate,
+  authController.getProfile.bind(authController)
+)
 router.put(
   '/profile',
   authenticate,
   validate(updateProfileSchema),
-  authController.updateProfile
+  authController.updateProfile.bind(authController)
 )
 
 export default router

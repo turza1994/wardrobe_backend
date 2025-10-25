@@ -101,74 +101,47 @@ export class OTPController {
         })
         .where(eq(otpVerifications.id, otpRecord.id))
 
-      if (purpose === 'registration') {
-        // Create user after OTP verification
-        const tempPassword = `temp_${Date.now()}`
-        const passwordHash = await authService.hashPassword(tempPassword)
+      // Check if user exists
+      const [existingUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.phone, phone))
+        .limit(1)
 
-        const [user] = await db
-          .insert(users)
-          .values({
-            phone,
-            passwordHash,
-            phoneVerified: true,
-            phoneVerifiedAt: new Date(),
-          })
-          .returning({
-            id: users.id,
-            name: users.name,
-            phone: users.phone,
-            email: users.email,
-            role: users.role,
-          })
+      if (!existingUser) {
+        throw new NotFoundError('User not found. Please register first.')
+      }
 
-        const token = authService.generateToken({
-          userId: user.id,
-          email: user.phone || '', // Use phone as email for token
-          role: user.role,
+      // Update user's verification status
+      await db
+        .update(users)
+        .set({
+          phoneVerified: true,
+          phoneVerifiedAt: new Date(),
         })
+        .where(eq(users.phone, phone))
 
-        res.json({
-          success: true,
-          message: 'Phone verified and registration completed',
+      const token = authService.generateToken({
+        userId: existingUser.id,
+        email: existingUser.phone || '', // Use phone as email for token
+        role: existingUser.role,
+      })
+
+      res.json({
+        success: true,
+        message: 'Phone verified successfully',
+        data: {
           token,
           user: {
-            id: user.id,
-            name: user.name,
-            phone: user.phone,
-            email: user.email,
-            role: user.role,
+            id: existingUser.id,
+            name: existingUser.name,
+            phone: existingUser.phone,
+            email: existingUser.email,
+            role: existingUser.role,
             phoneVerified: true,
           },
-        })
-      } else if (purpose === 'login') {
-        // Phone verification for existing user
-        await db
-          .update(users)
-          .set({
-            phoneVerified: true,
-            phoneVerifiedAt: new Date(),
-          })
-          .where(eq(users.phone, phone))
-
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.phone, phone))
-          .limit(1)
-
-        const token = authService.generateToken({
-          userId: user.id,
-          email: user.phone || '', // Use phone as email for token
-          role: user.role,
-        })
-
-        res.json({
-          success: true,
-          message: 'Phone verified successfully',
-          token,
-        })
-      }
+        },
+      })
     } catch (error) {
       next(error)
     }

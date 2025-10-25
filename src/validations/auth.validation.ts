@@ -6,8 +6,8 @@ export const registerSchema = z.object({
       .string()
       .regex(/^01\d{9}$/, 'Phone must be in format: 01XXXXXXXXX'),
     password: z.string().min(6, 'Password must be at least 6 characters'),
-    name: z.string().min(2).optional(),
-    email: z.string().email().optional(),
+    name: z.string().optional(),
+    email: z.string().optional(),
     address: z.string().optional(),
   }),
 })

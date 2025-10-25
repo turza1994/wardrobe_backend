@@ -19,7 +19,7 @@ const router = Router()
 
 router.use('/', healthRoutes)
 router.use('/auth', authRoutes)
-router.use('/auth', otpRoutes) // OTP routes under /auth/*
+router.use('/otp', otpRoutes) // OTP routes under /auth/*
 router.use('/admin', adminRoutes)
 router.use('/users', userRoutes)
 router.use('/categories', categoryRoutes)

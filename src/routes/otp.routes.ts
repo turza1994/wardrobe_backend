@@ -10,8 +10,20 @@ import {
 const router = Router()
 const otpController = new OTPController()
 
-router.post('/send-otp', validate(sendOTPSchema), otpController.sendOTP)
-router.post('/verify-otp', validate(verifyOTPSchema), otpController.verifyOTP)
-router.post('/resend-otp', validate(resendOTPSchema), otpController.resendOTP)
+router.post(
+  '/send-otp',
+  validate(sendOTPSchema),
+  otpController.sendOTP.bind(otpController)
+)
+router.post(
+  '/verify-otp',
+  validate(verifyOTPSchema),
+  otpController.verifyOTP.bind(otpController)
+)
+router.post(
+  '/resend-otp',
+  validate(resendOTPSchema),
+  otpController.resendOTP.bind(otpController)
+)
 
 export default router
